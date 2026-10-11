@@ -1,0 +1,54 @@
+# ===== Python =====
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+dist/
+*.egg-info/
+.eggs/
+venv/
+.venv/
+env/
+ENV/
+
+# ===== 테스트/캐시 =====
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+
+# ===== 모델 캐시 =====
+.cache/
+models/
+torch/
+
+# ===== 오디오/악보 임시 산출물 =====
+*.wav
+*.mp3
+*.flac
+*.mid
+*.midi
+output/
+input/
+tmp/
+
+# ===== TL3 (민감: 특허/저작권) =====
+*.tl3
+*.tl4
+*.tld
+!tests/fixtures/sample_minimal.tl3
+
+# ===== 환경변수/시크릿 =====
+.env
+.env.local
+*.key
+secrets/
+
+# ===== IDE =====
+.vscode/
+.idea/
+*.swp
+.DS_Store
