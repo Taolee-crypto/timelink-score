@@ -1,74 +1,134 @@
-"""MusicXML → PDF 렌더링 (MuseScore CLI).
-
-원칙 3 준수: MuseScore는 외부 도구. 결과 PDF만 저장.
-"""
+"""MusicXML -> PDF rendering (via music21 -> .ly -> LilyPond -> PDF)."""
 
 from __future__ import annotations
 
 import logging
+import os
 import shutil
 import subprocess
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
-_MUSESCORE_CANDIDATES = (
-    "mscore",
-    "musescore",
-    "musescore4",
-    "mscore4",
-    "MuseScore4",
-)
-
 
 class RenderError(Exception):
-    """PDF 렌더링 실패."""
+    """PDF render failed."""
 
 
-def find_musescore() -> str | None:
-    """PATH에서 MuseScore 실행 파일을 찾는다."""
-    for name in _MUSESCORE_CANDIDATES:
+_LILYPOND_CANDIDATES = ("lilypond", "lilypond.exe")
+_LILYPOND_COMMON_PATHS = [
+    Path.home() / "LilyPond" / "bin",
+    Path("C:/LilyPond/bin"),
+    Path("C:/Program Files/LilyPond/bin"),
+]
+
+
+def find_lilypond() -> str | None:
+    for name in _LILYPOND_CANDIDATES:
         p = shutil.which(name)
         if p:
             return p
+    for base in _LILYPOND_COMMON_PATHS:
+        for name in _LILYPOND_CANDIDATES:
+            c = base / name
+            if c.exists():
+                return str(c)
     return None
+
+
+def _configure_music21(lily_exe: str) -> None:
+    """music21 환경에 LilyPond 경로 설정."""
+    try:
+        from music21 import environment
+        env = environment.Environment()
+        env["lilypondPath"] = lily_exe
+        # music21이 캐시를 새로 고치도록
+        env["lilypondVersion"] = None
+        env["musicxmlPath"] = lily_exe
+    except Exception as e:
+        logger.warning("music21 환경 설정 실패: %s", e)
+
+
+def render_pdf_from_score(
+    score,
+    out_pdf: str | Path,
+    *,
+    lilypond_bin: str | None = None,
+    timeout: int = 300,
+) -> Path:
+    """music21 Score -> .ly -> PDF."""
+    out_pdf = Path(out_pdf).resolve()
+    out_dir = out_pdf.parent
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    lily = lilypond_bin or find_lilypond()
+    if not lily:
+        raise RenderError("LilyPond not found.")
+
+    # ★ music21에 LilyPond 경로 설정 ★
+    _configure_music21(lily)
+
+    ly_path = out_dir / (out_pdf.stem + ".ly")
+    if ly_path.exists():
+        ly_path.unlink()
+
+    try:
+        score.write("lilypond", fp=str(ly_path))
+    except Exception as e:
+        raise RenderError(f"music21 lilypond write failed: {e}") from e
+
+    if not ly_path.exists():
+        raise RenderError(f".ly not created: {ly_path}")
+
+    expected_pdf = out_dir / (ly_path.stem + ".pdf")
+    if expected_pdf.exists():
+        expected_pdf.unlink()
+
+    env = os.environ.copy()
+    lily_dir = str(Path(lily).parent)
+    if lily_dir not in env.get("PATH", ""):
+        env["PATH"] = lily_dir + os.pathsep + env.get("PATH", "")
+
+    cmd = [lily, "--pdf", "-o", str(out_dir), str(ly_path)]
+    logger.info("LilyPond: %s", " ".join(cmd))
+
+    try:
+        subprocess.run(cmd, check=True, capture_output=True, timeout=timeout, env=env)
+    except subprocess.CalledProcessError as e:
+        stderr = e.stderr.decode(errors="ignore")[:1500]
+        raise RenderError(f"LilyPond failed (exit={e.returncode}):\n{stderr}") from e
+    except subprocess.TimeoutExpired:
+        raise RenderError(f"LilyPond timeout ({timeout}s)")
+
+    if not expected_pdf.exists():
+        raise RenderError(f"PDF not created: {expected_pdf}")
+
+    if expected_pdf != out_pdf:
+        shutil.move(str(expected_pdf), str(out_pdf))
+
+    logger.info("PDF created: %s", out_pdf)
+    return out_pdf
 
 
 def render_pdf(
     musicxml_path: str | Path,
     out_pdf: str | Path,
     *,
-    mscore_bin: str | None = None,
+    lilypond_bin: str | None = None,
+    timeout: int = 300,
 ) -> Path:
-    """MusicXML을 MuseScore CLI로 PDF 변환."""
+    """MusicXML -> music21 -> .ly -> PDF."""
+    from music21 import converter
+
     musicxml_path = Path(musicxml_path).resolve()
     if not musicxml_path.exists():
-        raise RenderError(f"MusicXML 파일이 없습니다: {musicxml_path}")
-
-    out_pdf = Path(out_pdf).resolve()
-    out_pdf.parent.mkdir(parents=True, exist_ok=True)
-
-    exe = mscore_bin or find_musescore()
-    if not exe:
-        raise RenderError(
-            "MuseScore를 찾을 수 없습니다. https://musescore.org/download "
-            "에서 설치 후 PATH에 추가하거나, mscore_bin 인자로 경로를 지정하세요."
-        )
-
-    cmd = [exe, "-o", str(out_pdf), str(musicxml_path)]
+        raise RenderError(f"MusicXML not found: {musicxml_path}")
 
     try:
-        subprocess.run(cmd, check=True, capture_output=True)
-    except subprocess.CalledProcessError as e:
-        raise RenderError(
-            f"MuseScore 실행 실패 (exit={e.returncode}): "
-            f"{e.stderr.decode(errors='ignore')[:500]}"
-        ) from e
+        score = converter.parse(str(musicxml_path))
+    except Exception as e:
+        raise RenderError(f"MusicXML parse failed: {e}") from e
 
-    if not out_pdf.exists():
-        raise RenderError(
-            f"PDF가 생성되지 않았습니다. MuseScore 출력을 확인하세요: {out_pdf}"
-        )
-
-    logger.info("PDF 생성: %s", out_pdf)
-    return out_pdf
+    return render_pdf_from_score(
+        score, out_pdf, lilypond_bin=lilypond_bin, timeout=timeout
+    )
