@@ -108,19 +108,24 @@ def extract_melody(
     n_frames = len(f0)
     times = np.arange(n_frames) * (hop_length / sr)
 
-    midi_arr = np.zeros_like(f0, dtype=float)
-    valid = f0 > 0
-    midi_arr[valid] = hz_to_midi(f0[valid])
-
-    midi_arr[confidence < confidence_threshold] = np.nan
-    midi_arr[~valid] = np.nan
-    midi_arr = _interpolate_nans(midi_arr)
-
-    midi_rounded = np.round(midi_arr).astype(int)
-
+    # Never interpolate across vocal silence: torchcrepe can estimate a pitch
+    # even for drums, reverb and breaths. Unvoiced/low-periodicity frames MUST
+    # remain rests rather than being extended into invented melody notes.
+    is_voiced = (f0 > 0) & np.isfinite(f0) & (confidence >= confidence_threshold)
+    midi_rounded = np.full(n_frames, -1, dtype=int)
+    if is_voiced.any():
+        midi_rounded[is_voiced] = np.round(hz_to_midi(f0[is_voiced])).astype(int)
+    # Median smooth only within contiguous voiced runs; never fill a gap.
     if median_filter_size >= 3:
         from scipy.signal import medfilt
-        midi_rounded = medfilt(midi_rounded, kernel_size=median_filter_size).astype(int)
+        for i in range(n_frames):
+            if not is_voiced[i]:
+                continue
+            lo=max(0,i-median_filter_size//2)
+            hi=min(n_frames,i+median_filter_size//2+1)
+            neighbors=midi_rounded[lo:hi][midi_rounded[lo:hi]>=0]
+            if len(neighbors)>=3:
+                midi_rounded[i]=int(np.median(neighbors))
 
     events = _frames_to_notes(
         times=times,
@@ -164,7 +169,7 @@ def _frames_to_notes(*, times, midi, freq, conf, min_duration):
 
 
 def _append_note(events, times, midi, freq, conf, start_idx, end_idx, min_duration):
-    if end_idx <= start_idx:
+    if end_idx <= start_idx or int(midi[start_idx]) < 0:
         return
 
     t_start = float(times[start_idx])
