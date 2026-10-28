@@ -94,6 +94,41 @@ def doctor() -> None:
     console.print(table)
 
 
+@app.command("local")
+def local_audio(
+    audio_path: Path = typer.Argument(..., help="직접 제작하거나 분석 권한을 가진 음원 WAV/MP3/FLAC"),
+    out_dir: Path = typer.Option(Path("output"), "--out", "-o"),
+    title: str = typer.Option("", "--title", help="악보 제목"),
+    artist: str = typer.Option("", "--artist", help="아티스트"),
+    bpm: float = typer.Option(120, "--bpm", help="원곡 BPM (수동 확인)"),
+    chords: bool = typer.Option(True, "--chords/--no-chords"),
+    vocals: bool = typer.Option(False, "--vocals/--no-vocals", help="선택: Demucs 보컬 분리"),
+    pdf: bool = typer.Option(False, "--pdf/--no-pdf", help="선택: LilyPond PDF"),
+) -> None:
+    """권한이 있는 로컬 음원을 멜로디·코드·MusicXML·TRACK JSON으로 분석.
+
+    이 명령은 V5 암호화 재생 데이터를 가져오지 않으며 TL을 차감하지 않습니다.
+    """
+    from .pipeline import run_local_audio
+
+    try:
+        result = run_local_audio(
+            audio_path, out_dir=out_dir, title=title, artist=artist,
+            bpm=bpm, include_chords=chords, separate_vocals=vocals,
+            render_pdf=pdf,
+        )
+    except Exception as exc:
+        console.print(f"[red]분석 실패:[/red] {exc}")
+        raise typer.Exit(1) from exc
+
+    console.print(f"[green]MusicXML 초안:[/green] {result.musicxml}")
+    console.print(f"[green]TRACK 악보 JSON:[/green] {result.score_data_path}")
+    console.print(f"[green]분석 메타데이터:[/green] {result.meta_json}")
+    if result.pdf:
+        console.print(f"[green]PDF 악보:[/green] {result.pdf}")
+    console.print("[yellow]초안은 수동 검수가 필요하며 TLD 발행이나 TL 과금은 진행되지 않았습니다.[/yellow]")
+
+
 @app.command()
 def run(
     tl3_path: Path = typer.Argument(..., help="TL3 파일 경로"),
