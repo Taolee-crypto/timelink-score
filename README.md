@@ -1,3 +1,28 @@
+# TimeLink Score — TRACK 악보 분석 엔진
+
+## V5 악보 생성 재개 (2026-10-29)
+
+이 프로젝트는 TRACK의 실제 오디오 입력을 받아 MusicXML 악보와 TRACK 호환 ScoreData를 만드는 엔진입니다. 이전에 누락된 pipeline.py를 복구했습니다.
+
+- 사용자가 권리를 가진 WAV/MP3/FLAC/M4A/OGG를 로컬에서 분석합니다.
+- torchcrepe가 있으면 모델 기반, 없으면 librosa YIN 추정으로 멜로디를 추출합니다.
+- 기존 코드 진행·조성 분석과 music21 리드시트 엔진을 연결합니다.
+- MusicXML/track-score-draft.json/meta.json을 출력합니다. PDF는 설치된 LilyPond가 있을 때 선택적으로 생성합니다.
+- 정식 TLD 암호화·판매·정산은 아직 미구현이며 이 기능은 TL을 차감하지 않습니다.
+- 구형 V3 TL3 세그먼트 자동 분석은 V5 인증 체계와 다르므로 현재 금지합니다.
+
+### 설치와 실행 (Python 3.11)
+
+```bash
+python -m pip install 'numpy>=1.24,<2' 'scipy>=1.11' 'librosa>=0.10.2' 'soundfile>=0.12.1' 'music21>=9.1'
+PYTHONPATH=src python scripts/transcribe_local.py song.wav --out output/my-song --bpm 90
+```
+
+Windows PowerShell은 `$env:PYTHONPATH='src'`를 지정한 뒤 `python scripts/transcribe_local.py song.wav --bpm 90`로 실행합니다.
+
+MusicXML은 편집 가능한 악보 초안이며 복잡한 믹스 음원은 수동 검수가 필요합니다. 원본 음원은 출력 폴더에 복제하지 않습니다. V5 TL3 재생 음원 자동 분석에는 권리 확인·분석 세션·서버 처리 및 TLD 발행 연동이 추가로 필요합니다.
+
+---
 # TimeLink Score
 
 **TL3 음원 파일에서 오선지 악보를 자동 생성하는 확장 모듈.**
